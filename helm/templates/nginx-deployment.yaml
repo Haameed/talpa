@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ .Release.Name }}-deployment"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ toYaml .Values.nginxApp.labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+    {{ toYaml .Values.nginxApp.labels | nindent 6 }}
+  replicas: {{ .Values.nginxApp.replicas }}
+  template:
+    metadata:
+      annotations:
+        vault.hashicorp.com/agent-inject: 'true'
+        vault.hashicorp.com/role: 'devweb-app'
+        vault.hashicorp.com/agent-pre-populate: "false"
+        vault.hashicorp.com/agent-inject-secret-user1: 'secret/data/nginx/config_user1'
+        vault.hashicorp.com/agent-inject-secret-user2: 'secret/data/nginx/config_user2'
+        vault.hashicorp.com/agent-inject-template-user1: |
+         {{`{{- with secret "secret/data/nginx/config_user1" -}}
+          USERNAME1={{ .Data.data.username }}
+          PASSWORD_USER1={{ .Data.data.password }}
+          {{- end -}}
+        vault.hashicorp.com/agent-inject-template-user2: |
+          {{- with secret "secret/data/nginx/config_user2" -}}
+          USERNAME2={{ .Data.data.username }}
+          PASSWORD_USER2={{ .Data.data.password }}
+          {{- end -}} `}}
+      labels:
+      {{ toYaml .Values.nginxApp.labels | nindent 8 }}
+    spec:
+      serviceAccountName: nginx-app
+      containers:
+        - name: htpasswd
+          image: xmartlabs/htpasswd
+          imagePullPolicy: IfNotPresent
+          command:
+          - "/bin/sh"
+          - "-c"
+          - "source /vault/secrets/user1 && source /vault/secrets/user2 && htpasswd -b -c /mnt/.htpasswd $USERNAME1 $PASSWORD_USER1 && htpasswd -b /mnt/.htpasswd $USERNAME2 $PASSWORD_USER2 && tail -f /etc/resolv.conf"
+          volumeMounts:
+            - name: emptydir-vol
+              mountPath: /mnt
+        - name: nginx
+          image: "{{ .Values.nginxApp.image.Name}}:{{ .Values.nginxApp.image.Tag }}"
+          imagePullPolicy: {{ .Values.nginxApp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.nginxApp.port }}
+              protocol: TCP 
+          volumeMounts:
+            - name: nginxconfig
+              mountPath: /etc/nginx/conf.d/
+            - name: emptydir-vol
+              mountPath: /mnt/
+      volumes:
+
+        - name: nginxconfig
+          configMap:
+            name: "{{ .Release.Name }}-configmap"
+        - name: emptydir-vol
+          emptyDir: {}

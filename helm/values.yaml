@@ -1,0 +1,12 @@
+nginxApp:
+  replicas: 1
+  image:
+    Name: nginx
+    Tag: latest
+  labels:
+    app: nginx
+  port: 80
+
+svc:
+  type: LoadBalancer
+  port: 80
